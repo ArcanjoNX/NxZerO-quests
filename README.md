@@ -100,9 +100,3 @@ Todas as rotas (exceto validação e health check) exigem o cabeçalho:
 - **Nunca compartilhe ou comite seu `.env`:** Mantenha sempre no `.gitignore`.
 - **Tokens Discord:** Os tokens nunca são persistidos em bancos de dados em texto plano.
 - **Deploy na Vercel:** Se for hospedar na Vercel, configure o `entrypoint` apontando para `index.js` e preencha as variáveis de ambiente em **Project Settings > Environment Variables**.
-
----
-
-## 📄 Licença
-
-Este projeto é de código aberto sob a licença [MIT](https://opensource.org/licenses/MIT).
