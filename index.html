@@ -17,7 +17,9 @@
     --font: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     --mono: 'Consolas', 'Monaco', 'Courier New', monospace;
   }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
+
   body {
     background-color: var(--bg);
     color: var(--text);
@@ -29,5 +31,309 @@
       linear-gradient(90deg, rgba(0, 245, 138, 0.03) 1px, transparent 1px);
     background-size: 40px 40px;
   }
-  .matrix-rain { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: -1; overflow: hidden; pointer-events: none; }
-  .matrix-rain span { position: absolute; display: block; width: 
+
+  /* Matrix Rain Effect */
+  .matrix-rain {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .matrix-rain span {
+    position: absolute;
+    display: block;
+    width: 20px;
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--neon);
+    opacity: 0.15;
+    animation: fall linear infinite;
+  }
+  @keyframes fall {
+    from { transform: translateY(-100vh); }
+    to { transform: translateY(100vh); }
+  }
+
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--neon-dim);
+    border-radius: 12px;
+    padding: 25px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(0, 245, 138, 0.05);
+    backdrop-filter: blur(10px);
+    margin-bottom: 20px;
+    transition: border-color 0.3s;
+  }
+  .panel:hover { border-color: var(--neon); }
+
+  h1, h2, h3 {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--neon);
+    text-shadow: 0 0 10px var(--neon-dim);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 30px;
+    justify-content: center;
+  }
+  .logo {
+    width: 60px;
+    height: 60px;
+    border: 2px solid var(--neon);
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    font-size: 30px;
+    font-weight: 900;
+    color: var(--neon);
+    box-shadow: 0 0 20px var(--neon-dim);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 10px var(--neon-dim); }
+    50% { box-shadow: 0 0 25px var(--neon); }
+    100% { box-shadow: 0 0 10px var(--neon-dim); }
+  }
+
+  .input-group { margin-bottom: 20px; }
+  label {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  input, select {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid var(--neon-dim);
+    color: var(--neon);
+    padding: 14px;
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 14px;
+    outline: none;
+    transition: all 0.3s;
+  }
+  input:focus, select:focus {
+    border-color: var(--neon);
+    box-shadow: 0 0 15px var(--neon-dim);
+  }
+  input::placeholder { color: #445544; }
+
+  .btn {
+    background: transparent;
+    border: 1px solid var(--neon);
+    color: var(--neon);
+    padding: 14px 20px;
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-weight: bold;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn:hover {
+    background: var(--neon);
+    color: #000;
+    box-shadow: 0 0 20px var(--neon);
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .status-msg {
+    font-family: var(--mono);
+    font-size: 12px;
+    margin-top: 10px;
+    min-height: 18px;
+  }
+  .status-error { color: var(--error); }
+  .status-success { color: var(--neon); }
+  .status-warning { color: var(--warning); }
+
+  /* --- MISSIONS GRID --- */
+  .missions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 15px;
+  }
+  .mission-card {
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(0,0,0,0.4);
+    border-radius: 10px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .mission-card:hover { transform: translateY(-3px); border-color: var(--neon-dim); }
+  .mission-card.executing { border-color: var(--warning); box-shadow: 0 0 15px rgba(255, 215, 0, 0.2); }
+  .mission-card.completed { border-color: var(--neon); box-shadow: 0 0 15px var(--neon-dim); }
+  
+  .mission-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .mission-icon { font-size: 24px; color: var(--neon); }
+  .mission-tag {
+    font-size: 10px;
+    background: rgba(0, 245, 138, 0.1);
+    border: 1px solid var(--neon-dim);
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: var(--neon);
+  }
+  .mission-title { font-size: 16px; font-weight: bold; margin-bottom: 5px; }
+  .mission-desc { font-size: 12px; color: var(--muted); line-height: 1.4; flex-grow: 1; }
+  .mission-reward {
+    font-family: var(--mono);
+    color: var(--neon);
+    font-size: 14px;
+    font-weight: bold;
+  }
+  .mission-status {
+    font-family: var(--mono);
+    font-size: 12px;
+    text-align: center;
+    padding: 8px;
+    border-radius: 6px;
+    background: rgba(0,0,0,0.3);
+  }
+  .status-pending { color: var(--muted); }
+  .status-executing { color: var(--warning); }
+  .status-completed { color: var(--neon); }
+  .status-error { color: var(--error); }
+
+  /* --- TOAST --- */
+  #toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel);
+    border: 1px solid var(--neon);
+    color: var(--neon);
+    padding: 15px 25px;
+    border-radius: 8px;
+    font-family: var(--mono);
+    box-shadow: 0 0 20px var(--neon-dim);
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  #toast.show { opacity: 1; }
+  #toast.error { border-color: var(--error); color: var(--error); box-shadow: 0 0 20px rgba(255, 77, 77, 0.3); }
+
+  .hidden { display: none !important; }
+  
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--neon-dim); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--neon); }
+
+  /* Progress Bar */
+  .progress-container {
+    width: 100%;
+    height: 8px;
+    background: rgba(0,0,0,0.5);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 10px 0;
+  }
+  .progress-bar {
+    height: 100%;
+    background: var(--neon);
+    width: 0%;
+    transition: width 0.5s ease;
+    box-shadow: 0 0 10px var(--neon);
+  }
+</style>
+</head>
+<body>
+
+<div class="matrix-rain" id="matrixRain"></div>
+
+<div class="container">
+  <div class="brand">
+    <div class="logo">A</div>
+    <div>
+      <h1 style="margin:0">ArcanjoQuest</h1>
+      <span style="font-size:10px; color:var(--muted); letter-spacing:2px">MATRIX CORE v2.0</span>
+    </div>
+  </div>
+
+  <!-- LOGIN SCREEN -->
+  <div id="loginScreen" class="panel" style="max-width: 500px; margin: 0 auto;">
+    <h2 style="margin-bottom: 20px; text-align: center;">Autenticação de Token</h2>
+    <div class="input-group">
+      <label>Discord User Token</label>
+      <input type="password" id="tokenInput" placeholder="Cole seu token aqui...">
+    </div>
+    <button class="btn" id="loginBtn">Conectar ao Sistema</button>
+    <div id="loginMsg" class="status-msg"></div>
+  </div>
+
+  <!-- DASHBOARD SCREEN -->
+  <div id="dashboardScreen" class="hidden">
+    <!-- STATUS PANEL -->
+    <div class="panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h3 style="margin:0;">Status do Sistema</h3>
+        <button id="logoutBtn" style="border:none; background:none; color:var(--muted); cursor:pointer; font-size:12px; text-transform:uppercase;">[ Desconectar ]</button>
+      </div>
+      <div style="font-family: var(--mono); font-size: 12px; color: var(--muted);">
+        Usuário: <span id="userDisplay" style="color: var(--neon);">N/A</span>
+      </div>
+      <div class="progress-container">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div id="progressText" style="font-size: 11px; color: var(--muted); text-align: center; font-family: var(--mono);">0/4 Missões Concluídas</div>
+      <button class="btn" id="autoExecuteBtn" style="margin-top: 15px;">Iniciar Auto-Execução</button>
+    </div>
+
+    <!-- MISSIONS PANEL -->
+    <div class="panel">
+      <h3 style="margin-bottom: 20px;">Missões Disponíveis</h3>
+      <div class="missions-grid" id="missionGrid">
+        <!-- Missões serão injetadas aqui via JS -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- Módulos JS -->
+<script src="js/auth.js"></script>
+<script src="js/DiscordClient.js"></script>
+<script src="js/questlogic.js"></script>
+<script src="js/questrunner.js"></script>
+<script src="js/index.js"></script>
+
+</body>
+</html>
