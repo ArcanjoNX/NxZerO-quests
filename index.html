@@ -26,6 +26,7 @@
     font-family: var(--font);
     min-height: 100vh;
     overflow-x: hidden;
+    /* Grid de fundo sutil */
     background-image: 
       linear-gradient(rgba(0, 245, 138, 0.03) 1px, transparent 1px),
       linear-gradient(90deg, rgba(0, 245, 138, 0.03) 1px, transparent 1px);
@@ -36,7 +37,7 @@
   .matrix-rain {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    z-index: -1;
+    z-index: 1; /* Atrás do conteúdo (z-index 10) mas à frente do bg */
     overflow: hidden;
     pointer-events: none;
   }
@@ -49,6 +50,7 @@
     color: var(--neon);
     opacity: 0.15;
     animation: fall linear infinite;
+    will-change: transform; /* Otimização de performance */
   }
   @keyframes fall {
     from { transform: translateY(-100vh); }
@@ -56,6 +58,8 @@
   }
 
   .container {
+    position: relative; /* Garante que o conteúdo fique acima da rainha */
+    z-index: 10;
     max-width: 900px;
     margin: 0 auto;
     padding: 20px;
@@ -154,12 +158,12 @@
     position: relative;
     overflow: hidden;
   }
-  .btn:hover {
+  .btn:hover:not(:disabled) {
     background: var(--neon);
     color: #000;
     box-shadow: 0 0 20px var(--neon);
   }
-  .btn:active { transform: scale(0.98); }
+  .btn:active:not(:disabled) { transform: scale(0.98); }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .status-msg {
@@ -168,9 +172,10 @@
     margin-top: 10px;
     min-height: 18px;
   }
-  .status-error { color: var(--error); }
-  .status-success { color: var(--neon); }
-  .status-warning { color: var(--warning); }
+  /* Específico para mensagens de texto no login */
+  .msg-error { color: var(--error); }
+  .msg-success { color: var(--neon); }
+  .msg-warning { color: var(--warning); }
 
   /* --- MISSIONS GRID --- */
   .missions-grid {
@@ -189,8 +194,10 @@
     transition: transform 0.2s, border-color 0.2s;
   }
   .mission-card:hover { transform: translateY(-3px); border-color: var(--neon-dim); }
-  .mission-card.executing { border-color: var(--warning); box-shadow: 0 0 15px rgba(255, 215, 0, 0.2); }
-  .mission-card.completed { border-color: var(--neon); box-shadow: 0 0 15px var(--neon-dim); }
+  
+  /* Estados da Card */
+  .mission-card.card-executing { border-color: var(--warning); box-shadow: 0 0 15px rgba(255, 215, 0, 0.2); }
+  .mission-card.card-completed { border-color: var(--neon); box-shadow: 0 0 15px var(--neon-dim); }
   
   .mission-header {
     display: flex;
@@ -208,12 +215,8 @@
   }
   .mission-title { font-size: 16px; font-weight: bold; margin-bottom: 5px; }
   .mission-desc { font-size: 12px; color: var(--muted); line-height: 1.4; flex-grow: 1; }
-  .mission-reward {
-    font-family: var(--mono);
-    color: var(--neon);
-    font-size: 14px;
-    font-weight: bold;
-  }
+  
+  /* Status Badge na Card */
   .mission-status {
     font-family: var(--mono);
     font-size: 12px;
@@ -222,10 +225,11 @@
     border-radius: 6px;
     background: rgba(0,0,0,0.3);
   }
-  .status-pending { color: var(--muted); }
-  .status-executing { color: var(--warning); }
-  .status-completed { color: var(--neon); }
-  .status-error { color: var(--error); }
+  /* Cores específicas do status da missão */
+  .st-pending { color: var(--muted); }
+  .st-executing { color: var(--warning); }
+  .st-completed { color: var(--neon); }
+  .st-error { color: var(--error); }
 
   /* --- TOAST --- */
   #toast {
@@ -244,9 +248,13 @@
     opacity: 0;
     transition: opacity 0.3s;
     pointer-events: none;
+    max-width: 90%;
+    text-align: center;
   }
   #toast.show { opacity: 1; }
   #toast.error { border-color: var(--error); color: var(--error); box-shadow: 0 0 20px rgba(255, 77, 77, 0.3); }
+  #toast.warning { border-color: var(--warning); color: var(--warning); box-shadow: 0 0 20px rgba(255, 215, 0, 0.3); }
+  #toast.info { border-color: #4d94ff; color: #4d94ff; box-shadow: 0 0 20px rgba(77, 148, 255, 0.3); }
 
   .hidden { display: none !important; }
   
@@ -288,10 +296,10 @@
   </div>
 
   <!-- LOGIN SCREEN -->
-  <div id="loginScreen" class="panel" style="max-width: 500px; margin: 0 auto;">
+  <div id="loginScreen" class="panel" style="max-width: 500px; margin: 0 auto; width: 100%;">
     <h2 style="margin-bottom: 20px; text-align: center;">Autenticação de Token</h2>
     <div class="input-group">
-      <label>Discord User Token</label>
+      <label for="tokenInput">Discord User Token</label>
       <input type="password" id="tokenInput" placeholder="Cole seu token aqui...">
     </div>
     <button class="btn" id="loginBtn">Conectar ao Sistema</button>
@@ -304,15 +312,15 @@
     <div class="panel">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h3 style="margin:0;">Status do Sistema</h3>
-        <button id="logoutBtn" style="border:none; background:none; color:var(--muted); cursor:pointer; font-size:12px; text-transform:uppercase;">[ Desconectar ]</button>
+        <button id="logoutBtn" style="border:none; background:none; color:var(--muted); cursor:pointer; font-size:12px; text-transform:uppercase; font-family: var(--mono);">[ Desconectar ]</button>
       </div>
-      <div style="font-family: var(--mono); font-size: 12px; color: var(--muted);">
+      <div style="font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 5px;">
         Usuário: <span id="userDisplay" style="color: var(--neon);">N/A</span>
       </div>
       <div class="progress-container">
         <div class="progress-bar" id="progressBar"></div>
       </div>
-      <div id="progressText" style="font-size: 11px; color: var(--muted); text-align: center; font-family: var(--mono);">0/4 Missões Concluídas</div>
+      <div id="progressText" style="font-size: 11px; color: var(--muted); text-align: center; font-family: var(--mono);">0/0 Missões</div>
       <button class="btn" id="autoExecuteBtn" style="margin-top: 15px;">Iniciar Auto-Execução</button>
     </div>
 
@@ -327,13 +335,3 @@
 </div>
 
 <div id="toast"></div>
-
-<!-- Módulos JS -->
-<script src="js/auth.js"></script>
-<script src="js/DiscordClient.js"></script>
-<script src="js/questlogic.js"></script>
-<script src="js/questrunner.js"></script>
-<script src="js/index.js"></script>
-
-</body>
-</html>
