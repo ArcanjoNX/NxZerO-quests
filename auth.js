@@ -6,16 +6,12 @@
 const AuthManager = {
   // Configuração de Segurança
   CONFIG: {
-    // Chave usada para ofuscar o token no localStorage
-    // Altere para uma string secreta única em produção
-    OBFS_KEY: 'ARCANJO_MATRIX_SECRET_KEY_X92#K7!Q4Z',
-    // Prefixo para identificar sessões válidas
-    PREFIX: 'ARC_QT::',
-    // Expiração da sessão local (24 horas em milissegundos)
-    EXPIRY_MS: 24 * 60 * 60 * 1000,
-    // Versão do formato de sessão
-    VERSION: '1.0'
-  },
+  // Use as suas chaves do .env aqui
+  OBFS_KEY: 'vdAJ5Gu69qHIrMgm7VTl5MkWkNg4sQlo', 
+  PREFIX: 'ARC_QT::',
+  EXPIRY_MS: 24 * 60 * 60 * 1000,
+  VERSION: '1.0'
+},
 
   // ─────────────────────────────────────────────────────────────────────────
   // OFUSCAÇÃO (XOR + Base64)
