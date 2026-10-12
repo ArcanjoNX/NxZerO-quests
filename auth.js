@@ -6,24 +6,41 @@
 const AuthManager = {
   // Configuração de Segurança
   CONFIG: {
-  // Use as suas chaves do .env aqui
-  OBFS_KEY: 'vdAJ5Gu69qHIrMgm7VTl5MkWkNg4sQlo', 
-  PREFIX: 'ARC_QT::',
-  EXPIRY_MS: 24 * 60 * 60 * 1000,
-  VERSION: '1.0'
-},
+    OBFS_KEY: 'vdAJ5Gu69qHIrMgm7VTl5MkWkNg4sQlo', 
+    PREFIX: 'ARC_QT::',
+    EXPIRY_MS: 24 * 60 * 60 * 1000,
+    VERSION: '1.0'
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // UTILITÁRIOS DE CODIFICAÇÃO (UTF-8 SAFE)
+  // Substitui escape/unescape por TextEncoder/TextDecoder ou métodos manuais
+  // ─────────────────────────────────────────────────────────────────────────
+  
+  // Converte string para Array de Bytes (Uint8Array) para garantir UTF-8
+  _toBytes(str) {
+    const encoder = new TextEncoder();
+    return encoder.encode(str);
+  },
+
+  // Converte Array de Bytes (Uint8Array) para string
+  _fromBytes(bytes) {
+    const decoder = new TextDecoder();
+    return decoder.decode(bytes);
+  },
 
   // ─────────────────────────────────────────────────────────────────────────
   // OFUSCAÇÃO (XOR + Base64)
-  // Substitui o Buffer do Node.js por operações nativas do browser
   // ─────────────────────────────────────────────────────────────────────────
   
-  _xorString(input, key) {
-    let result = '';
-    for (let i = 0; i < input.length; i++) {
-      result += String.fromCharCode(input.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+  _xorBytes(inputBytes, key) {
+    const keyBytes = this._toBytes(key);
+    const output = new Uint8Array(inputBytes.length);
+    
+    for (let i = 0; i < inputBytes.length; i++) {
+      output[i] = inputBytes[i] ^ keyBytes[i % keyBytes.length];
     }
-    return result;
+    return output;
   },
 
   /**
@@ -34,9 +51,16 @@ const AuthManager = {
   obfuscate(text) {
     if (!text) return '';
     try {
-      const xored = this._xorString(text, this.CONFIG.OBFS_KEY);
-      // encodeURIComponent evita erro com caracteres não-ASCII no btoa
-      return btoa(unescape(encodeURIComponent(xored)));
+      // 1. Converte texto para bytes (UTF-8)
+      const textBytes = this._toBytes(text);
+      
+      // 2. Aplica XOR
+      const xoredBytes = this._xorBytes(textBytes, this.CONFIG.OBFS_KEY);
+      
+      // 3. Converte bytes para Base64
+      // btoa espera uma string binária, então convertemos Uint8Array para string binária
+      const binString = String.fromCharCode(...xoredBytes);
+      return btoa(binString);
     } catch (e) {
       console.warn('[Auth] Falha na ofuscação:', e);
       return '';
@@ -51,8 +75,20 @@ const AuthManager = {
   deobfuscate(encoded) {
     if (!encoded) return '';
     try {
-      const decoded = decodeURIComponent(escape(atob(encoded)));
-      return this._xorString(decoded, this.CONFIG.OBFS_KEY);
+      // 1. Decodifica Base64 para string binária
+      const binString = atob(encoded);
+      
+      // 2. Converte string binária para Uint8Array
+      const bytes = new Uint8Array(binString.length);
+      for (let i = 0; i < binString.length; i++) {
+        bytes[i] = binString.charCodeAt(i);
+      }
+      
+      // 3. Aplica XOR (inverso)
+      const xoredBytes = this._xorBytes(bytes, this.CONFIG.OBFS_KEY);
+      
+      // 4. Converte bytes para string (UTF-8)
+      return this._fromBytes(xoredBytes);
     } catch (e) {
       console.warn('[Auth] Falha na desofuscação:', e);
       return '';
@@ -61,7 +97,6 @@ const AuthManager = {
 
   // ─────────────────────────────────────────────────────────────────────────
   // GERAÇÃO DE HASH SIMPLES (Integridade)
-  // Não é criptografia forte, mas impede edição casual do payload
   // ─────────────────────────────────────────────────────────────────────────
   
   _simpleHash(str) {
@@ -76,13 +111,12 @@ const AuthManager = {
 
   // ─────────────────────────────────────────────────────────────────────────
   // GESTÃO DE SESSÃO (JWT Local)
-  // Cria um token de sessão que contém o token ofuscado e metadados
   // ─────────────────────────────────────────────────────────────────────────
   
   /**
    * Cria um token de sessão local ofuscado.
    * @param {string} discordToken - Token do usuário do Discord.
-   * @param {object} user - Objeto de usuário do Discord ({id, username, discriminator}).
+   * @param {object} user - Objeto de usuário do Discord.
    * @returns {string} Token de sessão ofuscado.
    */
   createSession(discordToken, user) {
@@ -90,14 +124,23 @@ const AuthManager = {
       v: this.CONFIG.VERSION,
       sub: String(user.id),
       usr: user.username,
-      tag: `${user.username}#${user.discriminator}`,
-      dt: this.obfuscate(discordToken), // Token Discord ofuscado
+      tag: `${user.username}#${user.discriminator || '0'}`, // Fallback para nova tag
+      dt: this.obfuscate(discordToken),
       exp: Date.now() + this.CONFIG.EXPIRY_MS,
       iat: Date.now()
     };
 
-    const payload = btoa(JSON.stringify(sessionData));
-    const header = btoa(JSON.stringify({ alg: 'ARC-V1', typ: 'SESSION' }));
+    // Usamos btoa no JSON. Se o JSON tiver caracteres unicode, 
+    // é recomendável usar o mesmo método de ofuscação base64 acima 
+    // ou garantir que o JSON esteja seguro para ASCII.
+    // Para manter compatibilidade com o verifySession atual (atob),
+    // vamos usar a ofuscação própria para o payload também, 
+    // mas para simplificar e manter o formato JWT-like, 
+    // mantemos btoa se o JSON for ASCII-safe.
+    // Como o Discord user object é JSON seguro, btoa funciona.
+    
+    const payload = btoa(unescape(encodeURIComponent(JSON.stringify(sessionData))));
+    const header = btoa(unescape(encodeURIComponent(JSON.stringify({ alg: 'ARC-V1', typ: 'SESSION' }))));
     const signature = this._simpleHash(`${header}.${payload}`);
     
     return `${header}.${payload}.${signature}`;
@@ -106,7 +149,7 @@ const AuthManager = {
   /**
    * Verifica a validade e integridade de um token de sessão.
    * @param {string} sessionToken - Token de sessão para verificar.
-   * @returns {object|null} Objeto com {discordToken, userId, username, tag} ou null.
+   * @returns {object|null} Objeto com dados da sessão ou null.
    */
   verifySession(sessionToken) {
     if (!sessionToken) return null;
@@ -123,26 +166,20 @@ const AuthManager = {
     }
 
     try {
-      const data = JSON.parse(atob(payload));
+      // Reverte o unescape(encodeURIComponent()) feito no createSession
+      const jsonStr = decodeURIComponent(escape(atob(payload)));
+      const data = JSON.parse(jsonStr);
       
-      // Verifica versão
-      if (data.v !== this.CONFIG.VERSION) {
-        return null;
-      }
+      if (data.v !== this.CONFIG.VERSION) return null;
 
-      // Verifica expiração
       if (data.exp < Date.now()) {
         console.warn('[Auth] Sessão expirada.');
         return null;
       }
 
-      // Desofusca o token do Discord
       const discordToken = this.deobfuscate(data.dt);
       
-      // Valida formato básico do token
-      if (!discordToken || discordToken.length < 50) {
-        return null;
-      }
+      if (!discordToken || discordToken.length < 50) return null;
 
       return {
         discordToken,
@@ -189,17 +226,11 @@ const AuthManager = {
   // VALIDAÇÃO DE TOKEN DO DISCORD (API Real-Time)
   // ─────────────────────────────────────────────────────────────────────────
   
-  /**
-   * Valida um token do Discord chamando a API oficial.
-   * @param {string} token - Token do usuário do Discord.
-   * @returns {Promise<object>} {valid: boolean, user: object, error: string}
-   */
   async validateDiscordToken(token) {
     if (!token || token.length < 50) {
       return { valid: false, error: 'Token muito curto ou inválido.' };
     }
 
-    // Validação de formato básico (evita chamadas desnecessárias)
     if (!/^[A-Za-z0-9._-]+$/.test(token)) {
       return { valid: false, error: 'Token contém caracteres inválidos.' };
     }
@@ -209,8 +240,7 @@ const AuthManager = {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
-          'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8'
+          'Accept': 'application/json'
         }
       });
 
@@ -227,3 +257,8 @@ const AuthManager = {
     }
   }
 };
+
+// Export para uso em módulos (se aplicável)
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = AuthManager;
+        }
