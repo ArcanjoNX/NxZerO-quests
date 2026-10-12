@@ -69,7 +69,9 @@ function validateQuestId(req, res, next) {
 // ROTAS
 // ══════════════════════════════════════════════════════════════════════════════
 
-// ── Auth: Validar token Discord e gerar JWT ──────────────────────────────────
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});// ── Auth: Validar token Discord e gerar JWT ──────────────────────────────────
 app.post('/api/auth/validate', authLimiter, async (req, res) => {
   try {
     const { token } = req.body;
