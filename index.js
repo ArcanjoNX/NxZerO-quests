@@ -1,5 +1,5 @@
 /**
- * ArcanjoQuest - UI Controller
+ * ArcanjoQuest - UI Controller (Main)
  * Conecta o HTML Matrix à lógica de automação do Discord.
  */
 
@@ -53,6 +53,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── RENDERIZAÇÃO DE MISSÕES ────────────────────────────────────────────────
   function renderMissions(quests) {
     els.missionGrid.innerHTML = '';
+    
+    if (quests.length === 0) {
+      els.missionGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--muted); font-family: var(--mono);">NENHUMA MISSÃO DISPONÍVEL</div>';
+      return;
+    }
+
     quests.forEach(q => {
       const card = document.createElement('div');
       card.className = 'mission-card';
@@ -71,12 +77,12 @@ document.addEventListener('DOMContentLoaded', () => {
       
       const desc = document.createElement('div');
       desc.className = 'mission-desc';
-      desc.textContent = q.reward;
+      desc.textContent = `Alvo: ${q.target} | Recompensa: ${q.reward}`;
       
       const status = document.createElement('div');
       status.className = 'mission-status status-pending';
       status.id = `quest-status-${q.id}`;
-      status.textContent = 'PENDING';
+      status.textContent = 'PENDENTE';
       
       card.append(header, title, desc, status);
       els.missionGrid.appendChild(card);
@@ -91,28 +97,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ── HANDLER DE PROGRESSO (Chamado pelo QuestRunner) ────────────────────────
-  function handleProgress(progress) {
-    showToast(progress.message || '', progress.type === 'error' ? 'error' : 'success');
+  // ── FUNÇÃO DE BUSCA E RENDERIZAÇÃO ─────────────────────────────────────────
+  async function fetchAndRenderQuests() {
+    if (!state.token) return;
     
-    if (progress.questId) {
-      const statusMap = {
-        'start': ['executing', 'EXECUTANDO'],
-        'success': ['completed', 'CONCLUÍDA'],
-        'error': ['error', 'ERRO']
-      };
-      const [type, text] = statusMap[progress.type] || ['pending', 'PENDING'];
-      updateQuestStatus(progress.questId, type, text);
-    }
-
-    if (progress.type === 'complete') {
-      els.autoExecuteBtn.disabled = false;
-      els.autoExecuteBtn.textContent = 'Iniciar Auto-Execução';
+    const questsRes = await DiscordClient.getQuests(state.token);
+    if (questsRes.status === 200) {
+      state.quests = QuestLogic.processQuests(questsRes.data);
+      renderMissions(state.quests);
+      return state.quests.length;
+    } else if (questsRes.status === 401) {
+      showToast('Token inválido ou expirado. Sessão encerrada.', 'error');
+      handleLogout();
+      return 0;
+    } else {
+      showToast(`Erro ao buscar missões: ${questsRes.data.message || questsRes.status}`, 'error');
+      return 0;
     }
   }
 
-  // ── AÇÕES DO BOTÃO DE LOGIN ────────────────────────────────────────────────
-  els.loginBtn.addEventListener('click', async () => {
+  // ── HANDLER DE LOGIN ───────────────────────────────────────────────────────
+  async function performLogin() {
     const rawToken = els.tokenInput.value.trim();
     if (!rawToken) {
       els.loginMsg.textContent = 'Insira um token.';
@@ -139,18 +144,16 @@ document.addEventListener('DOMContentLoaded', () => {
       state.user = authResult.user;
 
       // 4. Atualiza UI
-      els.userDisplay.textContent = `${state.user.username}#${state.user.discriminator}`;
+      els.userDisplay.textContent = `${state.user.username}`;
       els.loginScreen.classList.add('hidden');
       els.dashboardScreen.classList.remove('hidden');
       
       // 5. Busca e renderiza quests
-      const questsRes = await DiscordClient.getQuests(rawToken);
-      if (questsRes.status === 200) {
-        state.quests = QuestLogic.processQuests(questsRes.data);
-        renderMissions(state.quests);
-        showToast(`Conectado! ${state.quests.length} missões encontradas.`);
+      const count = await fetchAndRenderQuests();
+      if (count > 0) {
+        showToast(`Conectado! ${count} missões encontradas.`);
       } else {
-        throw new Error(`Erro ao buscar missões: ${questsRes.status}`);
+        showToast('Conectado! Nenhuma missão pendente no momento.', 'warning');
       }
     } catch (error) {
       els.loginMsg.textContent = `Erro: ${error.message}`;
@@ -158,47 +161,69 @@ document.addEventListener('DOMContentLoaded', () => {
     } finally {
       els.loginBtn.disabled = false;
     }
-  });
+  }
 
-  // ── AÇÕES DO BOTÃO DE AUTO-EXECUÇÃO ────────────────────────────────────────
-  els.autoExecuteBtn.addEventListener('click', async () => {
+  // ── HANDLER DE AUTO-EXECUÇÃO ───────────────────────────────────────────────
+  async function performAutoExecute() {
     if (state.isRunning || state.quests.length === 0) return;
     
     state.isRunning = true;
     els.autoExecuteBtn.disabled = true;
-    els.autoExecuteBtn.textContent = 'Executando...';
-    els.progressText.textContent = 'Iniciando auto-execução...';
+    els.autoExecuteBtn.textContent = 'EXECUTANDO...';
+    els.progressText.textContent = 'Processando missões...';
     els.progressBar.style.width = '0%';
 
-    // Executa sequencialmente
-    for (const quest of state.quests) {
-      updateQuestStatus(quest.id, 'executing', 'EXECUTANDO');
-      showToast(`Executando: ${quest.title}`, 'info');
+    try {
+      // Executa sequencialmente para evitar rate limits
+      let completedCount = 0;
+      const totalToRun = state.quests.length;
       
-      await QuestRunner.startQuestAwait(state.token, state.userId, quest);
-      
-      // Atualiza status final
-      const status = QuestRunner.getUserStatus(state.userId);
-      const questStatus = status.find(s => s.questId === quest.id);
-      if (questStatus) {
-        if (questStatus.status === 'completed') {
-          updateQuestStatus(quest.id, 'completed', 'CONCLUÍDA');
-        } else {
+      for (let i = 0; i < totalToRun; i++) {
+        const quest = state.quests[i];
+        
+        // Atualiza barra de progresso
+        els.progressBar.style.width = `${(i / totalToRun) * 100}%`;
+        updateQuestStatus(quest.id, 'executing', 'EXECUTANDO');
+        showToast(`Executando: ${quest.title}`, 'info');
+        
+        try {
+          await QuestRunner.startQuestAwait(state.token, state.userId, quest);
+          
+          // Verifica status final
+          const status = QuestRunner.getUserStatus(state.userId);
+          const questStatus = status.find(s => s.questId === quest.id);
+          
+          if (questStatus && questStatus.status === 'completed') {
+            updateQuestStatus(quest.id, 'completed', 'CONCLUÍDA');
+            completedCount++;
+          } else {
+            updateQuestStatus(quest.id, 'error', 'ERRO');
+          }
+        } catch (err) {
+          console.error(`Erro na quest ${quest.id}:`, err);
           updateQuestStatus(quest.id, 'error', 'ERRO');
         }
       }
+
+      els.progressBar.style.width = '100%';
+      els.progressText.textContent = `${completedCount}/${totalToRun} Missões Concluídas`;
+      showToast(`Auto-execução concluída! ${completedCount} sucesso(s).`, 'success');
+      
+    } catch (err) {
+      console.error('Erro crítico na auto-execução:', err);
+      showToast('Erro crítico na execução.', 'error');
+    } finally {
+      state.isRunning = false;
+      els.autoExecuteBtn.disabled = false;
+      els.autoExecuteBtn.textContent = 'INICIAR AUTO-EXECUÇÃO';
+      
+      // Atualiza a lista após a execução para pegar novas missões
+      await fetchAndRenderQuests();
     }
+  }
 
-    state.isRunning = false;
-    els.autoExecuteBtn.disabled = false;
-    els.autoExecuteBtn.textContent = 'Iniciar Auto-Execução';
-    els.progressText.textContent = 'Execução finalizada.';
-    els.progressBar.style.width = '100%';
-    showToast('Auto-execução concluída!', 'success');
-  });
-
-  // ── LOGOUT ─────────────────────────────────────────────────────────────────
-  els.logoutBtn.addEventListener('click', () => {
+  // ── HANDLER DE LOGOUT ──────────────────────────────────────────────────────
+  function handleLogout() {
     AuthManager.clearSession();
     state.token = null;
     state.userId = null;
@@ -210,14 +235,26 @@ document.addEventListener('DOMContentLoaded', () => {
     els.userDisplay.textContent = 'N/A';
     els.progressBar.style.width = '0%';
     els.progressText.textContent = '0/0 Missões';
+    els.missionGrid.innerHTML = '';
+  }
+
+  // ── EVENT LISTENERS ────────────────────────────────────────────────────────
+  els.loginBtn.addEventListener('click', performLogin);
+  els.tokenInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') performLogin();
   });
+  els.autoExecuteBtn.addEventListener('click', performAutoExecute);
+  els.logoutBtn.addEventListener('click', handleLogout);
 
   // ── AUTO-LOGIN (SE HOUVER SESSÃO SALVA) ────────────────────────────────────
   const savedSession = AuthManager.loadSession();
   if (savedSession) {
+    // Preenche o input para o usuário ver, mas não clica automaticamente
+    // para evitar erros silenciosos se o token estiver inválido.
+    // O usuário deve clicar em "Conectar" para validar novamente.
     els.tokenInput.value = savedSession.discordToken;
-    // Dispara o login automaticamente
-    els.loginBtn.click();
+    els.loginMsg.textContent = 'Sessão anterior encontrada. Clique para validar.';
+    els.loginMsg.className = 'status-msg status-warning';
   }
 
   initMatrixRain();
