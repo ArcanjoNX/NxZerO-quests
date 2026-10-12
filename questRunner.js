@@ -6,6 +6,7 @@
 const QuestRunner = {
   // Estado em memória: { userId: { questId: { status, progress, target, ... } } }
   activeQuests: {},
+  _sessionCounter: 0,
 
   // ── HELPERS DE ESTADO ──────────────────────────────────────────────────────
   
@@ -27,11 +28,18 @@ const QuestRunner = {
     this._setEntry(userId, questId, { status: 'error', error: error || 'Erro desconhecido' });
   },
 
+  _generateStreamKey(questId) {
+    this._sessionCounter++;
+    // Formato compatível com a API de Live do Discord
+    return `live:${questId}:${Date.now()}:${this._sessionCounter}`;
+  },
+
   // ── MISSÕES DE VÍDEO ───────────────────────────────────────────────────────
   // Continua enviando video-progress até o Discord responder com completed_at.
   
   async _runVideoQuest(token, userId, questId, target) {
     let timestamp = 0;
+    let lastSuccessfulTimestamp = 0;
 
     while (true) {
       const entry = this._getEntry(userId, questId);
@@ -47,7 +55,8 @@ const QuestRunner = {
 
       // Rate limit ou erro temporário — recua e aguarda com jitter
       if (res.status === 400 || res.status === 429) {
-        timestamp = Math.max(0, timestamp - 10);
+        // Se o servidor rejeitar, volta para o último timestamp válido
+        timestamp = lastSuccessfulTimestamp;
         await QuestLogic.sleep(QuestLogic.jitter(8000));
         continue;
       }
@@ -61,13 +70,14 @@ const QuestRunner = {
       const data = res.data || {};
 
       // Ponto de saída definitivo: confirmação do Discord
-      if (data.completed_at) {
+      if (data.completed_at || data.user_status?.completed_at) {
         this._markCompleted(userId, questId, target);
         return;
       }
 
       // Atualiza progresso atual
       this._setEntry(userId, questId, { progress: timestamp });
+      lastSuccessfulTimestamp = timestamp;
 
       // Só incrementa se ainda não atingiu o target; caso contrário, reenvia até completed_at
       if (timestamp < target) {
@@ -82,7 +92,7 @@ const QuestRunner = {
   // Continua enviando heartbeat com stream_key até o Discord responder com completed_at.
   
   async _runPlayQuest(token, userId, questId, taskType, target) {
-    const streamKey = `call:${questId}:1`;
+    const streamKey = this._generateStreamKey(questId);
 
     while (true) {
       const entry = this._getEntry(userId, questId);
@@ -139,9 +149,10 @@ const QuestRunner = {
     const taskType = quest.taskType;
     const target = quest.target;
 
-    // Inscreve na missão primeiro
-    await DiscordClient.enrollQuest(token, questId);
-
+    // Inscreve na missão primeiro (ignora se já estiver inscrita)
+    const enrollRes = await DiscordClient.enrollQuest(token, questId);
+    // Status 400/409 pode significar "já inscrito", o que é aceitável
+    
     if (!this.activeQuests[userId]) this.activeQuests[userId] = {};
     this.activeQuests[userId][questId] = {
       status: 'running',
@@ -192,9 +203,10 @@ const QuestRunner = {
   },
 
   cancelQuest(userId, questId) {
-    if (this.activeQuests[userId]?.[questId]) {
-      this.activeQuests[userId][questId].cancelled = true;
-      this.activeQuests[userId][questId].status = 'cancelled';
+    const entry = this.activeQuests[userId]?.[questId];
+    if (entry && entry.status === 'running') {
+      entry.cancelled = true;
+      entry.status = 'cancelled';
       return true;
     }
     return false;
