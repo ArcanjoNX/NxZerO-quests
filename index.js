@@ -1,16 +1,26 @@
 /**
  * ArcanjoQuest - UI Controller (Main)
  * Conecta o HTML Matrix à lógica de automação do Discord.
+ * 
+ * Pré-requisito: Os arquivos de lógica devem ser carregados via ES Modules.
  */
 
+// 1. IMPORTS DAS LÓGICAS EXTERNAS
+// Ajuste os caminhos conforme sua estrutura de pastas
+import { AuthManager } from './modules/auth.js';
+import { DiscordClient } from './modules/client.js';
+import { QuestLogic } from './modules/quest-logic.js';
+import { QuestRunner } from './modules/quest-runner.js';
+
 document.addEventListener('DOMContentLoaded', () => {
-  // ── ESTADO GLOBAL ──────────────────────────────────────────────────────────
+  // ── ESTADO GLOBAL (Reativo) ────────────────────────────────────────────────
   const state = {
     token: null,
     userId: null,
     user: null,
     quests: [],
-    isRunning: false
+    isRunning: false,
+    isLoggedOut: false // Flag para interromper loops assíncronos
   };
 
   // ── REFERÊNCIAS DO DOM ─────────────────────────────────────────────────────
@@ -26,12 +36,13 @@ document.addEventListener('DOMContentLoaded', () => {
     progressText: document.getElementById('progressText'),
     progressBar: document.getElementById('progressBar'),
     missionGrid: document.getElementById('missionGrid'),
-    toast: document.getElementById('toast')
+    toast: document.getElementById('toast'),
+    matrixRain: document.getElementById('matrixRain')
   };
 
   // ── EFEITO MATRIX ──────────────────────────────────────────────────────────
   function initMatrixRain() {
-    const rain = document.getElementById('matrixRain');
+    if (!els.matrixRain) return;
     const chars = "01アイウエオカキクケコサシスセソタチツテト";
     for (let i = 0; i < 30; i++) {
       const span = document.createElement('span');
@@ -39,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
       span.style.left = Math.random() * 100 + 'vw';
       span.style.animationDuration = (Math.random() * 3 + 2) + 's';
       span.style.animationDelay = (Math.random() * 5) + 's';
-      rain.appendChild(span);
+      els.matrixRain.appendChild(span);
     }
   }
 
@@ -47,7 +58,11 @@ document.addEventListener('DOMContentLoaded', () => {
   function showToast(message, type = 'success') {
     els.toast.textContent = message;
     els.toast.className = `show ${type}`;
-    setTimeout(() => { els.toast.className = ''; }, 4000);
+    // Garante que a classe 'show' seja removida mesmo se houver toasts rápidos
+    clearTimeout(els.toast._timeout);
+    els.toast._timeout = setTimeout(() => { 
+      els.toast.className = ''; 
+    }, 4000);
   }
 
   // ── RENDERIZAÇÃO DE MISSÕES ────────────────────────────────────────────────
@@ -55,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
     els.missionGrid.innerHTML = '';
     
     if (quests.length === 0) {
-      els.missionGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--muted); font-family: var(--mono);">NENHUMA MISSÃO DISPONÍVEL</div>';
+      els.missionGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--muted); font-family: var(--mono); padding: 2rem;">NENHUMA MISSÃO DISPONÍVEL</div>';
       return;
     }
 
@@ -66,6 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
       
       const header = document.createElement('div');
       header.className = 'mission-header';
+      // Sanitize: Use textContent para dinâmico se possível, mas innerHTML é ok para labels fixos
       header.innerHTML = `
         <div class="mission-icon">◎</div>
         <div class="mission-tag">${q.taskTypeLabel || 'QUEST'}</div>
@@ -77,7 +93,10 @@ document.addEventListener('DOMContentLoaded', () => {
       
       const desc = document.createElement('div');
       desc.className = 'mission-desc';
-      desc.textContent = `Alvo: ${q.target} | Recompensa: ${q.reward}`;
+      // Evita injeção de HTML se target/reward vierem da API com caracteres especiais
+      const descSpan = document.createElement('span');
+      descSpan.textContent = `Alvo: ${q.target} | Recompensa: ${q.reward}`;
+      desc.appendChild(descSpan);
       
       const status = document.createElement('div');
       status.className = 'mission-status status-pending';
@@ -99,19 +118,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── FUNÇÃO DE BUSCA E RENDERIZAÇÃO ─────────────────────────────────────────
   async function fetchAndRenderQuests() {
-    if (!state.token) return;
+    if (!state.token || state.isLoggedOut) return 0;
     
-    const questsRes = await DiscordClient.getQuests(state.token);
-    if (questsRes.status === 200) {
-      state.quests = QuestLogic.processQuests(questsRes.data);
-      renderMissions(state.quests);
-      return state.quests.length;
-    } else if (questsRes.status === 401) {
-      showToast('Token inválido ou expirado. Sessão encerrada.', 'error');
-      handleLogout();
-      return 0;
-    } else {
-      showToast(`Erro ao buscar missões: ${questsRes.data.message || questsRes.status}`, 'error');
+    try {
+      const questsRes = await DiscordClient.getQuests(state.token);
+      
+      if (questsRes.status === 200) {
+        state.quests = QuestLogic.processQuests(questsRes.data);
+        renderMissions(state.quests);
+        return state.quests.length;
+      } else if (questsRes.status === 401) {
+        showToast('Token inválido ou expirado. Sessão encerrada.', 'error');
+        handleLogout(true); // forceLogout
+        return 0;
+      } else {
+        showToast(`Erro ao buscar missões: ${questsRes.data.message || questsRes.status}`, 'error');
+        return 0;
+      }
+    } catch (err) {
+      console.error("Falha na rede ao buscar quests:", err);
+      showToast('Falha de conexão com o servidor de Quests.', 'error');
       return 0;
     }
   }
@@ -120,19 +146,17 @@ document.addEventListener('DOMContentLoaded', () => {
   async function performLogin() {
     const rawToken = els.tokenInput.value.trim();
     if (!rawToken) {
-      els.loginMsg.textContent = 'Insira um token.';
-      els.loginMsg.className = 'status-msg status-error';
+      setLoginMsg('Insira um token.', 'error');
       return;
     }
 
     els.loginBtn.disabled = true;
-    els.loginMsg.textContent = 'Validando token...';
-    els.loginMsg.className = 'status-msg status-success';
+    setLoginMsg('Validando token...', 'info');
 
     try {
       // 1. Valida na API do Discord
       const authResult = await AuthManager.validateDiscordToken(rawToken);
-      if (!authResult.valid) throw new Error(authResult.error);
+      if (!authResult.valid) throw new Error(authResult.error || 'Token inválido');
 
       // 2. Cria sessão ofuscada
       const sessionToken = AuthManager.createSession(rawToken, authResult.user);
@@ -142,9 +166,10 @@ document.addEventListener('DOMContentLoaded', () => {
       state.token = rawToken;
       state.userId = authResult.user.id;
       state.user = authResult.user;
+      state.isLoggedOut = false;
 
       // 4. Atualiza UI
-      els.userDisplay.textContent = `${state.user.username}`;
+      els.userDisplay.textContent = state.user.username;
       els.loginScreen.classList.add('hidden');
       els.dashboardScreen.classList.remove('hidden');
       
@@ -156,8 +181,8 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast('Conectado! Nenhuma missão pendente no momento.', 'warning');
       }
     } catch (error) {
-      els.loginMsg.textContent = `Erro: ${error.message}`;
-      els.loginMsg.className = 'status-msg status-error';
+      console.error("Login Error:", error);
+      setLoginMsg(`Erro: ${error.message}`, 'error');
     } finally {
       els.loginBtn.disabled = false;
     }
@@ -173,18 +198,19 @@ document.addEventListener('DOMContentLoaded', () => {
     els.progressText.textContent = 'Processando missões...';
     els.progressBar.style.width = '0%';
 
+    let completedCount = 0;
+    const totalToRun = state.quests.length;
+    
     try {
-      // Executa sequencialmente para evitar rate limits
-      let completedCount = 0;
-      const totalToRun = state.quests.length;
-      
       for (let i = 0; i < totalToRun; i++) {
+        // Verifica se o usuário fez logout durante a execução
+        if (state.isLoggedOut) break;
+
         const quest = state.quests[i];
         
-        // Atualiza barra de progresso
+        // Atualiza barra de progresso (baseado no índice atual, não concluído)
         els.progressBar.style.width = `${(i / totalToRun) * 100}%`;
         updateQuestStatus(quest.id, 'executing', 'EXECUTANDO');
-        showToast(`Executando: ${quest.title}`, 'info');
         
         try {
           await QuestRunner.startQuestAwait(state.token, state.userId, quest);
@@ -197,38 +223,50 @@ document.addEventListener('DOMContentLoaded', () => {
             updateQuestStatus(quest.id, 'completed', 'CONCLUÍDA');
             completedCount++;
           } else {
-            updateQuestStatus(quest.id, 'error', 'ERRO');
+            updateQuestStatus(quest.id, 'error', 'FALHOU');
           }
         } catch (err) {
           console.error(`Erro na quest ${quest.id}:`, err);
           updateQuestStatus(quest.id, 'error', 'ERRO');
         }
+        
+        // Pequeno delay para evitar rate limits do Discord (ex: 100ms)
+        await new Promise(r => setTimeout(r, 100));
       }
 
-      els.progressBar.style.width = '100%';
-      els.progressText.textContent = `${completedCount}/${totalToRun} Missões Concluídas`;
-      showToast(`Auto-execução concluída! ${completedCount} sucesso(s).`, 'success');
-      
+      if (!state.isLoggedOut) {
+        els.progressBar.style.width = '100%';
+        els.progressText.textContent = `${completedCount}/${totalToRun} Missões Concluídas`;
+        showToast(`Auto-execução concluída! ${completedCount} sucesso(s).`, 'success');
+        
+        // Atualiza a lista após a execução para pegar novas missões ou remover as concluídas
+        await fetchAndRenderQuests();
+      }
+
     } catch (err) {
       console.error('Erro crítico na auto-execução:', err);
-      showToast('Erro crítico na execução.', 'error');
+      if (!state.isLoggedOut) showToast('Erro crítico na execução.', 'error');
     } finally {
       state.isRunning = false;
-      els.autoExecuteBtn.disabled = false;
-      els.autoExecuteBtn.textContent = 'INICIAR AUTO-EXECUÇÃO';
-      
-      // Atualiza a lista após a execução para pegar novas missões
-      await fetchAndRenderQuests();
+      if (!state.isLoggedOut) {
+        els.autoExecuteBtn.disabled = false;
+        els.autoExecuteBtn.textContent = 'INICIAR AUTO-EXECUÇÃO';
+      }
     }
   }
 
   // ── HANDLER DE LOGOUT ──────────────────────────────────────────────────────
-  function handleLogout() {
-    AuthManager.clearSession();
+  function handleLogout(isForced = false) {
+    state.isLoggedOut = true;
     state.token = null;
     state.userId = null;
     state.user = null;
     state.quests = [];
+    state.isRunning = false; // Para o loop de execução imediatamente na próxima iteração
+
+    AuthManager.clearSession();
+    
+    // Reset UI
     els.tokenInput.value = '';
     els.loginScreen.classList.remove('hidden');
     els.dashboardScreen.classList.add('hidden');
@@ -236,6 +274,20 @@ document.addEventListener('DOMContentLoaded', () => {
     els.progressBar.style.width = '0%';
     els.progressText.textContent = '0/0 Missões';
     els.missionGrid.innerHTML = '';
+    
+    // Reset botões
+    els.autoExecuteBtn.disabled = false;
+    els.autoExecuteBtn.textContent = 'INICIAR AUTO-EXECUÇÃO';
+    
+    if (!isForced) {
+      showToast('Sessão encerrada com segurança.', 'info');
+    }
+  }
+
+  // ── HELPERS ────────────────────────────────────────────────────────────────
+  function setLoginMsg(text, type) {
+    els.loginMsg.textContent = text;
+    els.loginMsg.className = `status-msg status-${type}`;
   }
 
   // ── EVENT LISTENERS ────────────────────────────────────────────────────────
@@ -244,17 +296,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') performLogin();
   });
   els.autoExecuteBtn.addEventListener('click', performAutoExecute);
-  els.logoutBtn.addEventListener('click', handleLogout);
+  els.logoutBtn.addEventListener('click', () => handleLogout(false));
 
   // ── AUTO-LOGIN (SE HOUVER SESSÃO SALVA) ────────────────────────────────────
   const savedSession = AuthManager.loadSession();
   if (savedSession) {
-    // Preenche o input para o usuário ver, mas não clica automaticamente
-    // para evitar erros silenciosos se o token estiver inválido.
-    // O usuário deve clicar em "Conectar" para validar novamente.
     els.tokenInput.value = savedSession.discordToken;
-    els.loginMsg.textContent = 'Sessão anterior encontrada. Clique para validar.';
-    els.loginMsg.className = 'status-msg status-warning';
+    setLoginMsg('Sessão anterior encontrada. Clique para validar.', 'warning');
   }
 
   initMatrixRain();
