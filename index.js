@@ -1,216 +1,224 @@
-// Discord Quest Automation Backend API — Express.js
+/**
+ * ArcanjoQuest - UI Controller
+ * Conecta o HTML Matrix à lógica de automação do Discord.
+ */
 
-require('dotenv').config();
+document.addEventListener('DOMContentLoaded', () => {
+  // ── ESTADO GLOBAL ──────────────────────────────────────────────────────────
+  const state = {
+    token: null,
+    userId: null,
+    user: null,
+    quests: [],
+    isRunning: false
+  };
 
-const express = require('express');
-const path = require('path');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+  // ── REFERÊNCIAS DO DOM ─────────────────────────────────────────────────────
+  const els = {
+    loginScreen: document.getElementById('loginScreen'),
+    dashboardScreen: document.getElementById('dashboardScreen'),
+    tokenInput: document.getElementById('tokenInput'),
+    loginBtn: document.getElementById('loginBtn'),
+    loginMsg: document.getElementById('loginMsg'),
+    autoExecuteBtn: document.getElementById('autoExecuteBtn'),
+    logoutBtn: document.getElementById('logoutBtn'),
+    userDisplay: document.getElementById('userDisplay'),
+    progressText: document.getElementById('progressText'),
+    progressBar: document.getElementById('progressBar'),
+    missionGrid: document.getElementById('missionGrid'),
+    toast: document.getElementById('toast')
+  };
 
-const { isValidTokenFormat, isValidQuestId, getMe, getQuests } = require('./discordClient');
-const { processQuests } = require('./questLogic');
-const { startQuest, startQuestAwait, cancelQuest, getUserStatus } = require('./questRunner');
-const { createAccessToken, authMiddleware } = require('./auth');
-
-const app = express();
-
-// ── Segurança ────────────────────────────────────────────────────────────────
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-}));
-app.use(express.json({ limit: '1kb' }));
-
-// ── CORS ─────────────────────────────────────────────────────────────────────
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
-const allowedOrigins = FRONTEND_URL.split(',').map((o) => o.trim());
-
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Authorization', 'Content-Type'],
-}));
-
-// ── Rate Limiting ────────────────────────────────────────────────────────────
-const authLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Muitas requisições. Tente novamente em 1 minuto.' },
-});
-
-const apiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Muitas requisições. Tente novamente em 1 minuto.' },
-});
-
-// ── Headers de Segurança Adicionais ──────────────────────────────────────────
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  next();
-});
-
-// ── Validação de ID da Missão ────────────────────────────────────────────────
-function validateQuestId(req, res, next) {
-  const { questId } = req.params;
-  if (!isValidQuestId(questId)) {
-    return res.status(400).json({ error: 'ID de missão inválido' });
+  // ── EFEITO MATRIX ──────────────────────────────────────────────────────────
+  function initMatrixRain() {
+    const rain = document.getElementById('matrixRain');
+    const chars = "01アイウエオカキクケコサシスセソタチツテト";
+    for (let i = 0; i < 30; i++) {
+      const span = document.createElement('span');
+      span.textContent = chars[Math.floor(Math.random() * chars.length)];
+      span.style.left = Math.random() * 100 + 'vw';
+      span.style.animationDuration = (Math.random() * 3 + 2) + 's';
+      span.style.animationDelay = (Math.random() * 5) + 's';
+      rain.appendChild(span);
+    }
   }
-  next();
-}
 
-// ══════════════════════════════════════════════════════════════════════════════
-// ROTAS
-// ══════════════════════════════════════════════════════════════════════════════
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});// ── Auth: Validar token Discord e gerar JWT ──────────────────────────────────
-app.post('/api/auth/validate', authLimiter, async (req, res) => {
-  try {
-    const { token } = req.body;
-
-    if (!token || typeof token !== 'string') {
-      return res.status(400).json({ error: 'Token não fornecido' });
-    }
-
-    if (!isValidTokenFormat(token)) {
-      return res.status(400).json({ error: 'Formato de token inválido' });
-    }
-
-    const result = await getMe(token);
-    if (result.status !== 200 || !result.data?.id) {
-      return res.status(401).json({ error: 'Token de usuário inválido' });
-    }
-
-    const jwt = createAccessToken(token, result.data.id);
-    return res.json({ jwt, user: result.data });
-  } catch (err) {
-    console.error('[auth] Erro na validação:', err.message);
-    return res.status(500).json({ error: 'Erro interno do servidor' });
+  // ── TOAST NOTIFICATIONS ────────────────────────────────────────────────────
+  function showToast(message, type = 'success') {
+    els.toast.textContent = message;
+    els.toast.className = `show ${type}`;
+    setTimeout(() => { els.toast.className = ''; }, 4000);
   }
-});
 
-// ── Listar missões ativas ────────────────────────────────────────────────────
-app.get('/api/quests', apiLimiter, authMiddleware, async (req, res) => {
-  try {
-    const result = await getQuests(req.discordToken);
-
-    if (result.status === 401) {
-      return res.status(401).json({ error: 'Token expirado' });
-    }
-
-    if (result.status !== 200) {
-      return res.status(502).json({ error: `Discord retornou status ${result.status}` });
-    }
-
-    const processed = processQuests(result.data);
-    return res.json(processed);
-  } catch (err) {
-    console.error('[quests] Erro ao listar:', err.message);
-    return res.status(500).json({ error: 'Erro interno do servidor' });
-  }
-});
-
-// ── Executar uma missão específica ───────────────────────────────────────────
-app.post('/api/quests/:questId/run', apiLimiter, authMiddleware, validateQuestId, async (req, res) => {
-  try {
-    const { questId } = req.params;
-
-    const currentStatus = getUserStatus(req.userId);
-    const alreadyRunning = currentStatus.find((s) => s.questId === questId && s.status === 'running');
-    if (alreadyRunning) {
-      return res.json({ status: 'already_running', questId });
-    }
-
-    const result = await getQuests(req.discordToken);
-    if (result.status !== 200) {
-      return res.status(502).json({ error: 'Falha ao buscar missões' });
-    }
-
-    const processed = processQuests(result.data);
-    const quest = processed.find((q) => q.id === questId);
-
-    if (!quest) {
-      return res.status(404).json({ error: 'Missão não encontrada ou já concluída' });
-    }
-
-    startQuest(req.discordToken, req.userId, quest);
-    return res.json({ status: 'started', questId });
-  } catch (err) {
-    console.error('[quests] Erro ao executar:', err.message);
-    return res.status(500).json({ error: 'Erro interno do servidor' });
-  }
-});
-
-// ── Executar todas as missões sequencialmente ────────────────────────────────
-app.post('/api/quests/run-all', apiLimiter, authMiddleware, async (req, res) => {
-  try {
-    const result = await getQuests(req.discordToken);
-    if (result.status !== 200) {
-      return res.status(502).json({ error: 'Falha ao buscar missões' });
-    }
-
-    const processed = processQuests(result.data);
-
-    if (processed.length === 0) {
-      return res.json({ status: 'no_quests' });
-    }
-
-    const token = req.discordToken;
-    const userId = req.userId;
-
-    (async () => {
-      for (const quest of processed) {
-        const currentStatus = getUserStatus(userId);
-        const alreadyRunning = currentStatus.find((s) => s.questId === quest.id && s.status === 'running');
-        if (alreadyRunning) continue;
-        await startQuestAwait(token, userId, quest);
-      }
-    })().catch((err) => {
-      console.error('[quests] Erro ao rodar todas:', err.message);
+  // ── RENDERIZAÇÃO DE MISSÕES ────────────────────────────────────────────────
+  function renderMissions(quests) {
+    els.missionGrid.innerHTML = '';
+    quests.forEach(q => {
+      const card = document.createElement('div');
+      card.className = 'mission-card';
+      card.id = `quest-card-${q.id}`;
+      
+      const header = document.createElement('div');
+      header.className = 'mission-header';
+      header.innerHTML = `
+        <div class="mission-icon">◎</div>
+        <div class="mission-tag">${q.taskTypeLabel || 'QUEST'}</div>
+      `;
+      
+      const title = document.createElement('div');
+      title.className = 'mission-title';
+      title.textContent = q.title;
+      
+      const desc = document.createElement('div');
+      desc.className = 'mission-desc';
+      desc.textContent = q.reward;
+      
+      const status = document.createElement('div');
+      status.className = 'mission-status status-pending';
+      status.id = `quest-status-${q.id}`;
+      status.textContent = 'PENDING';
+      
+      card.append(header, title, desc, status);
+      els.missionGrid.appendChild(card);
     });
-
-    return res.json({ status: 'started_all', count: processed.length });
-  } catch (err) {
-    console.error('[quests] Erro ao executar todas:', err.message);
-    return res.status(500).json({ error: 'Erro interno do servidor' });
   }
-});
 
-// ── Obter status das missões do usuário ──────────────────────────────────────
-app.get('/api/quests/status', apiLimiter, authMiddleware, (req, res) => {
-  const status = getUserStatus(req.userId);
-  return res.json(status);
-});
-
-// ── Cancelar execução de uma missão ──────────────────────────────────────────
-app.post('/api/quests/:questId/cancel', apiLimiter, authMiddleware, validateQuestId, (req, res) => {
-  const success = cancelQuest(req.userId, req.params.questId);
-  if (!success) {
-    return res.status(404).json({ error: 'Missão não está em execução' });
+  function updateQuestStatus(questId, statusType, text) {
+    const el = document.getElementById(`quest-status-${questId}`);
+    if (el) {
+      el.className = `mission-status status-${statusType}`;
+      el.textContent = text.toUpperCase();
+    }
   }
-  return res.json({ status: 'cancelled', questId: req.params.questId });
-});
 
-// ── Health Check ─────────────────────────────────────────────────────────────
-app.get('/api/health', (req, res) => {
-  return res.json({ status: 'ok' });
-});
+  // ── HANDLER DE PROGRESSO (Chamado pelo QuestRunner) ────────────────────────
+  function handleProgress(progress) {
+    showToast(progress.message || '', progress.type === 'error' ? 'error' : 'success');
+    
+    if (progress.questId) {
+      const statusMap = {
+        'start': ['executing', 'EXECUTANDO'],
+        'success': ['completed', 'CONCLUÍDA'],
+        'error': ['error', 'ERRO']
+      };
+      const [type, text] = statusMap[progress.type] || ['pending', 'PENDING'];
+      updateQuestStatus(progress.questId, type, text);
+    }
 
-// ── Inicialização do Servidor ────────────────────────────────────────────────
-const PORT = process.env.PORT || 8080;
-if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
-  app.listen(PORT, () => {
-    console.log(`[Discord Quest API] Backend rodando em http://localhost:${PORT}`);
+    if (progress.type === 'complete') {
+      els.autoExecuteBtn.disabled = false;
+      els.autoExecuteBtn.textContent = 'Iniciar Auto-Execução';
+    }
+  }
+
+  // ── AÇÕES DO BOTÃO DE LOGIN ────────────────────────────────────────────────
+  els.loginBtn.addEventListener('click', async () => {
+    const rawToken = els.tokenInput.value.trim();
+    if (!rawToken) {
+      els.loginMsg.textContent = 'Insira um token.';
+      els.loginMsg.className = 'status-msg status-error';
+      return;
+    }
+
+    els.loginBtn.disabled = true;
+    els.loginMsg.textContent = 'Validando token...';
+    els.loginMsg.className = 'status-msg status-success';
+
+    try {
+      // 1. Valida na API do Discord
+      const authResult = await AuthManager.validateDiscordToken(rawToken);
+      if (!authResult.valid) throw new Error(authResult.error);
+
+      // 2. Cria sessão ofuscada
+      const sessionToken = AuthManager.createSession(rawToken, authResult.user);
+      AuthManager.saveSession(sessionToken);
+
+      // 3. Atualiza estado
+      state.token = rawToken;
+      state.userId = authResult.user.id;
+      state.user = authResult.user;
+
+      // 4. Atualiza UI
+      els.userDisplay.textContent = `${state.user.username}#${state.user.discriminator}`;
+      els.loginScreen.classList.add('hidden');
+      els.dashboardScreen.classList.remove('hidden');
+      
+      // 5. Busca e renderiza quests
+      const questsRes = await DiscordClient.getQuests(rawToken);
+      if (questsRes.status === 200) {
+        state.quests = QuestLogic.processQuests(questsRes.data);
+        renderMissions(state.quests);
+        showToast(`Conectado! ${state.quests.length} missões encontradas.`);
+      } else {
+        throw new Error(`Erro ao buscar missões: ${questsRes.status}`);
+      }
+    } catch (error) {
+      els.loginMsg.textContent = `Erro: ${error.message}`;
+      els.loginMsg.className = 'status-msg status-error';
+    } finally {
+      els.loginBtn.disabled = false;
+    }
   });
-}
 
-module.exports = app;
+  // ── AÇÕES DO BOTÃO DE AUTO-EXECUÇÃO ────────────────────────────────────────
+  els.autoExecuteBtn.addEventListener('click', async () => {
+    if (state.isRunning || state.quests.length === 0) return;
+    
+    state.isRunning = true;
+    els.autoExecuteBtn.disabled = true;
+    els.autoExecuteBtn.textContent = 'Executando...';
+    els.progressText.textContent = 'Iniciando auto-execução...';
+    els.progressBar.style.width = '0%';
+
+    // Executa sequencialmente
+    for (const quest of state.quests) {
+      updateQuestStatus(quest.id, 'executing', 'EXECUTANDO');
+      showToast(`Executando: ${quest.title}`, 'info');
+      
+      await QuestRunner.startQuestAwait(state.token, state.userId, quest);
+      
+      // Atualiza status final
+      const status = QuestRunner.getUserStatus(state.userId);
+      const questStatus = status.find(s => s.questId === quest.id);
+      if (questStatus) {
+        if (questStatus.status === 'completed') {
+          updateQuestStatus(quest.id, 'completed', 'CONCLUÍDA');
+        } else {
+          updateQuestStatus(quest.id, 'error', 'ERRO');
+        }
+      }
+    }
+
+    state.isRunning = false;
+    els.autoExecuteBtn.disabled = false;
+    els.autoExecuteBtn.textContent = 'Iniciar Auto-Execução';
+    els.progressText.textContent = 'Execução finalizada.';
+    els.progressBar.style.width = '100%';
+    showToast('Auto-execução concluída!', 'success');
+  });
+
+  // ── LOGOUT ─────────────────────────────────────────────────────────────────
+  els.logoutBtn.addEventListener('click', () => {
+    AuthManager.clearSession();
+    state.token = null;
+    state.userId = null;
+    state.user = null;
+    state.quests = [];
+    els.tokenInput.value = '';
+    els.loginScreen.classList.remove('hidden');
+    els.dashboardScreen.classList.add('hidden');
+    els.userDisplay.textContent = 'N/A';
+    els.progressBar.style.width = '0%';
+    els.progressText.textContent = '0/0 Missões';
+  });
+
+  // ── AUTO-LOGIN (SE HOUVER SESSÃO SALVA) ────────────────────────────────────
+  const savedSession = AuthManager.loadSession();
+  if (savedSession) {
+    els.tokenInput.value = savedSession.discordToken;
+    // Dispara o login automaticamente
+    els.loginBtn.click();
+  }
+
+  initMatrixRain();
+});
